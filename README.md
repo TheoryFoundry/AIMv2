@@ -86,6 +86,8 @@ aimv2 --enable-shell --external-skills /path/to/skills
 aimv2 --enable-shell --external-skills /path/to/team-skills --external-skills /path/to/private-skills
 ```
 
+This repository also ships with a local skill at `.aim/skills/problem-clarifier/SKILL.md` that helps AIM turn vague mathematical ideas into explicit candidate problem statements before attempting a proof.
+
 ## CLI Examples
 
 Start a new interactive session:
