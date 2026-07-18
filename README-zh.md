@@ -1,6 +1,6 @@
 # AIMv2
 
-`aimv2` 是一个在本地工作目录中运行的 AI 数学助手（命令行工具）。它适合用来：
+`aimv2` 是一个在本地工作目录中运行的 AI 数学助手（命令行工具）。它支持：
 
 - 探索数学问题与证明思路；
 - 把中间命题、证明及其依赖关系保存为 theorem graph；
@@ -10,7 +10,7 @@
 
 > **术语说明：** theorem graph 里的 “theorem” 主要指 AIM 在解题过程中提出或推导出的 **statement（命题、中间结论）**，不一定是从文献中检索到的已有定理。
 
-## 5 分钟快速开始
+##
 
 ### 1. 准备 Rust
 
@@ -21,7 +21,11 @@ rustc --version
 cargo --version
 ```
 
-如果命令不存在，请先从 [Rust 官方安装页面](https://www.rust-lang.org/tools/install) 安装 Rust。
+如果命令不存在，请先从 [Rust 官方安装页面](https://www.rust-lang.org/tools/install) 安装 Rust。已安装 [Homebrew](https://brew.sh/) 的 macOS 用户也可以直接执行：
+
+```bash
+brew install rust
+```
 
 ### 2. 安装 AIMv2
 
@@ -55,16 +59,24 @@ cd my-math-project
 在该目录中新建 `.env`：
 
 ```dotenv
-AIM_API_KEY=sk-请替换为你的密钥
+AIM_API_KEY=请替换为你的密钥
 AIM_BASE_URL=https://请替换为服务商地址/v1
 ```
 
-例如，若服务商提供的 endpoint 是 `https://yeysai.com/v1`，则写成：
+例如，若服务商提供的 endpoint 是 `https://endpoint.com/v1`，则写成：
 
 ```dotenv
-AIM_API_KEY=sk-请替换为你的密钥
-AIM_BASE_URL=https://yeysai.com/v1
+AIM_API_KEY=请替换为你的密钥
+AIM_BASE_URL=https://endpoint.com/v1
 ```
+
+如果直接使用 OpenAI 官方 API，只需配置官方 API key，无需设置 endpoint：
+
+```dotenv
+OPENAI_API_KEY=请替换为你的密钥
+```
+
+此时 AIMv2 会使用默认 endpoint `https://api.openai.com/v1`。可以在 [OpenAI API Keys](https://platform.openai.com/settings/organization/api-keys) 页面创建或管理密钥。
 
 不要把真实 API key 提交到 Git。请确认项目的 `.gitignore` 中包含 `.env`。
 
@@ -75,14 +87,18 @@ AIM_BASE_URL=https://yeysai.com/v1
 ```bash
 aimv2 \
   --model gpt-5.6-sol \
+  --reasoning-effort high \
   --enable-shell \
   --log-path .aim/session.json
 ```
+
+> **安全提示：** `--enable-shell` 允许 AIM 以当前用户权限执行命令和修改文件，并不提供完整的安全沙箱。首次使用建议保留默认的逐条确认模式，不要添加 `--auto`；如果任务不需要读取文件、运行代码或写入结果，请移除 `--enable-shell`。
 
 启动信息中请检查以下几项：
 
 - `workspace`：是否是刚才创建的项目目录；
 - `model`：是否是服务商支持的模型；
+- `reasoning effort`：是否是需要的推理强度；
 - `shell tool`：是否符合预期；
 - `history`：本次会话日志实际保存在哪里。
 
@@ -95,6 +111,14 @@ aimv2 \
 ```
 
 输入 `/help` 可以查看会话内命令，输入 `/exit` 结束会话。
+
+如果希望 progressive reviewer 做更深入的分段审查，可以在会话内调高最大迭代次数，例如：
+
+```text
+/iterations 5
+```
+
+迭代次数越多，通常需要的 API 调用、等待时间和费用也越多，而且不能保证证明一定正确。
 
 ## API 与模型配置
 
@@ -112,7 +136,7 @@ AIMv2 按以下优先级读取配置：
 也可以只为当前终端临时设置：
 
 ```bash
-export AIM_API_KEY='sk-请替换为你的密钥'
+export AIM_API_KEY='请替换为你的密钥'
 export AIM_BASE_URL='https://请替换为服务商地址/v1'
 ```
 
@@ -165,7 +189,7 @@ aimv2 --model gpt-5.6-sol --log-path .aim/session.json
 示例提问：
 
 ```text
-请先检查命题是否可能成立，再给出证明计划。每得到一个后续会依赖的中间结论，就把它记录到 theorem graph；如果暂时无法严格证明，请明确标记缺口，不要把猜想当结论。
+请先检查命题是否可能成立，再给出证明计划。每得到一个后续会依赖的中间结论，就把它记录到 theorem graph；如果暂时无法严格证明，请明确标记缺口，不要把猜想当结论。 %% TODO：人工check 此示例是否合适 %%
 ```
 
 这种场景不需要读写本地文件时，可以不启用 shell。
@@ -179,14 +203,14 @@ aimv2 --model gpt-5.6-sol --enable-shell --log-path .aim/problem-design.json
 示例提问：
 
 ```text
-我想研究“神经网络是否能发现组合数学中的新不变量”，但问题还不够具体。请先帮我澄清研究对象、允许的假设、可验证目标和可能的反例，给出 3 个由弱到强的候选问题；暂时不要直接声称已经证明。
+我想研究“神经网络是否能发现组合数学中的新不变量”，但问题还不够具体。请先帮我澄清研究对象、允许的假设、可验证目标和可能的反例，给出 3 个由弱到强的候选问题；暂时不要直接声称已经证明。%% TODO：人工check 此示例是否合适 %%
 ```
 
 本仓库包含 `.aim/skills/problem-clarifier/SKILL.md`，用于辅助把模糊想法整理为明确问题。通过 `cargo install` 安装二进制不会把仓库中的技能自动复制到其他 workspace；如需在自己的项目中使用，可以先执行：
 
 ```bash
 mkdir -p .aim/skills
-cp -R /path/to/AIMv2/.aim/skills/problem-clarifier .aim/skills/
+cp -R /path/to/AIMv2/.aim/skills/problem-clarifier .aim/skills/ %% TODO：人工check 此说明是否正确 %%
 ```
 
 请把 `/path/to/AIMv2` 替换为本仓库的实际路径。技能只会在启用 `--enable-shell` 时被发现。
@@ -204,7 +228,7 @@ aimv2 \
 示例提问：
 
 ```text
-请先阅读 problem.md 和 notes.tex，列出当前证明依赖的关键引理与缺口。必要时可以编写小程序做数值或符号实验，但请区分“实验支持”和“严格证明”。最后把审查报告写入 review.md。
+请先阅读 problem.md 和 notes.tex，列出当前证明依赖的关键引理与缺口。必要时可以编写小程序做数值或符号实验，但请区分“实验支持”和“严格证明”。最后把审查报告写入 review.md。%% TODO：人工check 此示例是否合适 %%
 ```
 
 shell 默认采用逐条确认模式。AIM 请求执行命令时：
@@ -254,7 +278,7 @@ aimv2 resume
 
 ### 场景五：导出所有中间命题为 Markdown
 
-不需要手工阅读或修改 JSON，可以直接使用 `view`：
+不需要手工阅读或修改 JSON，可以直接使用 `view`：%% TODO: 人工检查描述是否正确 %%
 
 ```bash
 aimv2 view --log-path .aim/session.json --all > theorem-graph.md
@@ -310,7 +334,7 @@ aimv2 \
 进入会话后可以直接要求：
 
 ```text
-请对最终命题及其依赖路径逐项审查。重点寻找未声明的假设、循环依赖、量词变化和只被数值实验支持的步骤；把发现的问题记录到对应 theorem graph 条目。
+请对最终命题及其依赖路径逐项审查。重点寻找未声明的假设、循环依赖、量词变化和只被数值实验支持的步骤；把发现的问题记录到对应 theorem graph 条目。 %% TODO： 人工检查是否合理
 ```
 
 ## 会话日志与恢复设置
@@ -354,7 +378,7 @@ aimv2 resume --enable-shell
 
 如果只是想查看或导出已有 theorem graph，不需要启用 shell，直接使用 `aimv2 view` 即可。
 
-## Theorem graph 是什么？
+## Theorem graph 是什么？%% TODO：人工检查正确性%%
 
 AIMv2 会在会话日志中维护一张依赖图，主要包含两类条目：
 
