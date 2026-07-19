@@ -156,7 +156,7 @@ In both modes, the reviewer uses the `comment` tool to append detected proof iss
 
 ## Session Logs
 
-Each session is saved as a JSON log. By default, logs are stored in a temp directory managed by `aimv2`. You can also choose an explicit path:
+Each session is saved as a JSON log. By default, logs are stored persistently under `~/.aim/sessions`. The directory is created automatically when needed. You can also choose an explicit path:
 
 ```bash
 aimv2 --log-path .aim/session.json

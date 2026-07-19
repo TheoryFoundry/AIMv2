@@ -1799,9 +1799,16 @@ fn ensure_log_parent(path: &Path) -> Result<()> {
 }
 
 fn default_sessions_root() -> Result<PathBuf> {
-    let root = env::temp_dir().join("aim-logs");
+    let home = env::var_os("HOME")
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow!("HOME is not set; use --log-path to choose a session log path"))?;
+    let root = sessions_root_for_home(Path::new(&home));
     fs::create_dir_all(&root).with_context(|| format!("failed to create {}", root.display()))?;
     Ok(root)
+}
+
+fn sessions_root_for_home(home: &Path) -> PathBuf {
+    home.join(".aim").join("sessions")
 }
 
 fn format_last_active(timestamp_ms: u128) -> String {
@@ -1944,7 +1951,7 @@ mod tests {
     use super::{
         Config, PROGRESSIVE_REVIEW_MIN_CHUNK_LINES, ResumeMode, ReviewerConfig, ReviewerKind,
         SessionConfigSnapshot, build_view_save_hint, load_session_file, resolve_session_settings,
-        split_proof_into_chunks,
+        sessions_root_for_home, split_proof_into_chunks,
     };
     use crate::history::HistoryFile;
     use crate::llm::LlmConfig;
@@ -2050,6 +2057,16 @@ mod tests {
         let hint = build_view_save_hint(&cli);
 
         assert!(hint.contains("aimv2 view --last --all > theorem-graph.md"));
+    }
+
+    #[test]
+    fn default_sessions_root_is_under_aim_in_home_directory() {
+        let home = PathBuf::from("/home/example");
+
+        assert_eq!(
+            sessions_root_for_home(&home),
+            home.join(".aim").join("sessions")
+        );
     }
 
     #[test]

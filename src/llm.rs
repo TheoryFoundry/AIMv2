@@ -5,12 +5,20 @@ use async_openai::{
     config::OpenAIConfig,
     types::chat::{
         ChatCompletionMessageToolCallChunk, ChatCompletionMessageToolCalls,
-        ChatCompletionRequestMessage, ChatCompletionStreamOptions, ChatCompletionTool,
-        ChatCompletionTools, CompletionUsage, CreateChatCompletionRequestArgs, FunctionObject,
-        FunctionType, ReasoningEffort,
+        ChatCompletionRequestAssistantMessageContent, ChatCompletionRequestDeveloperMessageContent,
+        ChatCompletionRequestMessage, ChatCompletionRequestSystemMessageContent,
+        ChatCompletionRequestToolMessageContent, ChatCompletionRequestUserMessageContent,
+        ChatCompletionStreamOptions, ChatCompletionTool, ChatCompletionTools, CompletionUsage,
+        CreateChatCompletionRequestArgs, FunctionObject, FunctionType, ReasoningEffort,
+    },
+    types::responses::{
+        CreateResponseArgs, EasyInputContent, EasyInputMessage, FunctionCallOutput,
+        FunctionCallOutputItemParam, FunctionTool, FunctionToolCall, InputItem, InputParam, Item,
+        OutputItem, OutputMessageContent, Reasoning, Response, Role, Tool,
     },
 };
 use futures::StreamExt;
+use serde::Serialize;
 use serde_json::{Map, Value, json};
 
 #[derive(Clone, Debug)]
@@ -58,6 +66,39 @@ pub(crate) fn build_client(api_key: &str, base_url: &str) -> LlmClient {
 }
 
 pub(crate) async fn call_model<F>(
+    client: &LlmClient,
+    config: &LlmConfig,
+    messages: Vec<ChatCompletionRequestMessage>,
+    tool_mode: Option<ToolMode>,
+    show_spinner: bool,
+    mut on_text: F,
+) -> Result<LlmReply>
+where
+    F: FnMut(&str),
+{
+    match call_responses_api(
+        client,
+        config,
+        messages.clone(),
+        tool_mode,
+        show_spinner,
+        &mut on_text,
+    )
+    .await
+    {
+        Ok(reply) => return Ok(reply),
+        Err(responses_err) => {
+            let chat_result =
+                call_chat_completions(client, config, messages, tool_mode, show_spinner, on_text)
+                    .await;
+            return chat_result.with_context(|| {
+                format!("responses API request failed before chat completions fallback: {responses_err:#}")
+            });
+        }
+    }
+}
+
+async fn call_chat_completions<F>(
     client: &LlmClient,
     config: &LlmConfig,
     messages: Vec<ChatCompletionRequestMessage>,
@@ -177,6 +218,264 @@ where
         input_tokens: usage_input,
         output_tokens: usage_output,
         total_tokens: usage_total,
+    })
+}
+
+async fn call_responses_api<F>(
+    client: &LlmClient,
+    config: &LlmConfig,
+    messages: Vec<ChatCompletionRequestMessage>,
+    tool_mode: Option<ToolMode>,
+    show_spinner: bool,
+    on_text: &mut F,
+) -> Result<LlmReply>
+where
+    F: FnMut(&str),
+{
+    let request = build_response_request(config, messages, tool_mode)?
+        .build()
+        .context("failed to build responses API request")?;
+
+    let mut spinner = if show_spinner {
+        Some(Spinner::start())
+    } else {
+        None
+    };
+    let response = client
+        .responses()
+        .create(request)
+        .await
+        .context("responses API request failed")?;
+    stop_spinner(&mut spinner);
+
+    let reply = parse_response_api_reply(response)?;
+    if !reply.content.is_empty() {
+        on_text(&reply.content);
+    }
+    Ok(reply)
+}
+
+fn build_response_request(
+    config: &LlmConfig,
+    messages: Vec<ChatCompletionRequestMessage>,
+    tool_mode: Option<ToolMode>,
+) -> Result<CreateResponseArgs> {
+    let mut request = CreateResponseArgs::default();
+    request.model(&config.model);
+    request.input(InputParam::Items(response_input_items(messages)?));
+    request.reasoning(Reasoning {
+        effort: Some(config.reasoning_effort.clone()),
+        summary: None,
+    });
+    request.store(false);
+    if let Some(mode) = tool_mode {
+        request.tools(response_tool_definitions(mode));
+        request.parallel_tool_calls(false);
+    }
+    Ok(request)
+}
+
+fn response_input_items(messages: Vec<ChatCompletionRequestMessage>) -> Result<Vec<InputItem>> {
+    let mut items = Vec::new();
+    for message in messages {
+        match message {
+            ChatCompletionRequestMessage::Developer(message) => {
+                items.push(easy_message(
+                    Role::Developer,
+                    developer_content_text(message.content),
+                ));
+            }
+            ChatCompletionRequestMessage::System(message) => {
+                items.push(easy_message(
+                    Role::System,
+                    system_content_text(message.content),
+                ));
+            }
+            ChatCompletionRequestMessage::User(message) => {
+                items.push(easy_message(Role::User, user_content_text(message.content)));
+            }
+            ChatCompletionRequestMessage::Assistant(message) => {
+                if let Some(content) = message.content {
+                    let text = assistant_content_text(content);
+                    if !text.trim().is_empty() {
+                        items.push(easy_message(Role::Assistant, text));
+                    }
+                }
+                for tool_call in message.tool_calls.unwrap_or_default() {
+                    match tool_call {
+                        ChatCompletionMessageToolCalls::Function(call) => {
+                            items.push(InputItem::Item(Item::FunctionCall(FunctionToolCall {
+                                arguments: call.function.arguments,
+                                call_id: call.id,
+                                namespace: None,
+                                name: call.function.name,
+                                id: None,
+                                status: None,
+                            })));
+                        }
+                        ChatCompletionMessageToolCalls::Custom(call) => {
+                            bail!(
+                                "custom chat tool call cannot be converted to responses input: {}",
+                                call.custom_tool.name
+                            );
+                        }
+                    }
+                }
+            }
+            ChatCompletionRequestMessage::Tool(message) => {
+                items.push(InputItem::Item(Item::FunctionCallOutput(
+                    FunctionCallOutputItemParam {
+                        call_id: message.tool_call_id,
+                        output: FunctionCallOutput::Text(tool_content_text(message.content)),
+                        id: None,
+                        status: None,
+                    },
+                )));
+            }
+            ChatCompletionRequestMessage::Function(message) => {
+                let output = message.content.unwrap_or_default();
+                items.push(InputItem::Item(Item::FunctionCallOutput(
+                    FunctionCallOutputItemParam {
+                        call_id: message.name,
+                        output: FunctionCallOutput::Text(output),
+                        id: None,
+                        status: None,
+                    },
+                )));
+            }
+        }
+    }
+    Ok(items)
+}
+
+fn easy_message(role: Role, content: String) -> InputItem {
+    InputItem::EasyMessage(EasyInputMessage {
+        r#type: Default::default(),
+        role,
+        content: EasyInputContent::Text(content),
+        phase: None,
+    })
+}
+
+fn developer_content_text(content: ChatCompletionRequestDeveloperMessageContent) -> String {
+    match content {
+        ChatCompletionRequestDeveloperMessageContent::Text(text) => text,
+        ChatCompletionRequestDeveloperMessageContent::Array(parts) => content_parts_text(parts),
+    }
+}
+
+fn system_content_text(content: ChatCompletionRequestSystemMessageContent) -> String {
+    match content {
+        ChatCompletionRequestSystemMessageContent::Text(text) => text,
+        ChatCompletionRequestSystemMessageContent::Array(parts) => content_parts_text(parts),
+    }
+}
+
+fn user_content_text(content: ChatCompletionRequestUserMessageContent) -> String {
+    match content {
+        ChatCompletionRequestUserMessageContent::Text(text) => text,
+        ChatCompletionRequestUserMessageContent::Array(parts) => content_parts_text(parts),
+    }
+}
+
+fn assistant_content_text(content: ChatCompletionRequestAssistantMessageContent) -> String {
+    match content {
+        ChatCompletionRequestAssistantMessageContent::Text(text) => text,
+        ChatCompletionRequestAssistantMessageContent::Array(parts) => content_parts_text(parts),
+    }
+}
+
+fn tool_content_text(content: ChatCompletionRequestToolMessageContent) -> String {
+    match content {
+        ChatCompletionRequestToolMessageContent::Text(text) => text,
+        ChatCompletionRequestToolMessageContent::Array(parts) => content_parts_text(parts),
+    }
+}
+
+fn content_parts_text<T>(parts: Vec<T>) -> String
+where
+    T: Serialize,
+{
+    parts
+        .into_iter()
+        .map(|part| {
+            let value = serde_json::to_value(part).unwrap_or(Value::Null);
+            value
+                .get("text")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .unwrap_or_else(|| value.to_string())
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn response_tool_definitions(mode: ToolMode) -> Vec<Tool> {
+    tool_definitions(mode)
+        .into_iter()
+        .filter_map(|tool| match tool {
+            ChatCompletionTools::Function(tool) => Some(Tool::Function(FunctionTool {
+                name: tool.function.name,
+                parameters: tool.function.parameters,
+                strict: tool.function.strict,
+                description: tool.function.description,
+                defer_loading: None,
+            })),
+            ChatCompletionTools::Custom(_) => None,
+        })
+        .collect()
+}
+
+fn parse_response_api_reply(response: Response) -> Result<LlmReply> {
+    if let Some(error) = response.error {
+        bail!("responses API returned {}: {}", error.code, error.message);
+    }
+
+    let mut content = String::new();
+    let mut refusal = String::new();
+    let mut tool_calls = Vec::new();
+    for item in response.output {
+        match item {
+            OutputItem::Message(message) => {
+                for part in message.content {
+                    match part {
+                        OutputMessageContent::OutputText(text) => content.push_str(&text.text),
+                        OutputMessageContent::Refusal(text) => refusal.push_str(&text.refusal),
+                    }
+                }
+            }
+            OutputItem::FunctionCall(call) => {
+                let arguments = validate_tool_call_arguments(&call.name, &call.arguments)
+                    .with_context(|| {
+                        format!("tool call {} has malformed JSON arguments", call.call_id)
+                    })?;
+                tool_calls.push(ToolCall {
+                    id: call.call_id,
+                    name: call.name,
+                    arguments,
+                });
+            }
+            _ => {}
+        }
+    }
+
+    let content = if content.trim().is_empty() {
+        refusal.trim().to_string()
+    } else {
+        content.trim().to_string()
+    };
+    if content.is_empty() && tool_calls.is_empty() {
+        bail!("responses API returned neither content nor tool calls");
+    }
+
+    let usage = response.usage;
+    Ok(LlmReply {
+        content,
+        reasoning: None,
+        tool_calls,
+        input_tokens: usage.as_ref().map(|usage| u64::from(usage.input_tokens)),
+        output_tokens: usage.as_ref().map(|usage| u64::from(usage.output_tokens)),
+        total_tokens: usage.as_ref().map(|usage| u64::from(usage.total_tokens)),
     })
 }
 
