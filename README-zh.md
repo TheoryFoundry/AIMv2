@@ -88,8 +88,8 @@ OPENAI_API_KEY=请替换为你的密钥
 
 ```bash
 # 1. 请按需调整 log 存放目录和文件；
-# 2. 不建议放在工作目录下，以免 aimv2 自动读取产生混乱
-# 3. 如不指定 --log-path，log 将存放在系统默认目录
+# 2. 启用 shell 时，把日志放在 workspace 之外可降低 agent 后续检查文件时读取它的可能性
+# 3. 如不指定 --log-path，日志将保存在 ~/.aim/sessions/ 下
 
 aimv2 \
   --model gpt-5.6-sol \
@@ -134,7 +134,7 @@ AIMv2 按以下优先级读取配置：
 
 | 用途 | 优先读取 | 备用变量 | 未设置时 |
 | --- | --- | --- | --- |
-| API key | `AIM_API_KEY` | `OPENAI_API_KEY` | 无法启动 |
+| API key | `AIM_API_KEY` | `OPENAI_API_KEY` | 无法新建或恢复交互会话；`view` 仍可使用 |
 | API endpoint | `AIM_BASE_URL` | `OPENAI_BASE_URL` | `https://api.openai.com/v1` |
 
 推荐把配置写在 workspace 根目录的 `.env` 中。AIMv2 只会自动读取**当前 workspace 下的 `.env`**；安装源码目录中的 `.env` 不会自动应用到其他 workspace。
@@ -187,8 +187,8 @@ my-math-project/
 
 ```bash
 # 1. 请按需调整 log 存放目录和文件；
-# 2. 不建议放在工作目录下，以免 aimv2 自动读取产生混乱
-# 3. 如不指定 --log-path，log 将存放在系统默认目录
+# 2. 启用 shell 时，把日志放在 workspace 之外可降低 agent 后续检查文件时读取它的可能性
+# 3. 如不指定 --log-path，日志将保存在 ~/.aim/sessions/ 下
 
 cd my-math-project
 aimv2 --model gpt-5.6-sol --reasoning-effort high --log-path YOUR_LOG_FILE.json
@@ -206,8 +206,8 @@ aimv2 --model gpt-5.6-sol --reasoning-effort high --log-path YOUR_LOG_FILE.json
 
 ```bash
 # 1. 请按需调整 log 存放目录和文件；
-# 2. 不建议放在工作目录下，以免 aimv2 自动读取产生混乱
-# 3. 如不指定 --log-path，log 将存放在系统默认目录
+# 2. 启用 shell 时，把日志放在 workspace 之外可降低 agent 后续检查文件时读取它的可能性
+# 3. 如不指定 --log-path，日志将保存在 ~/.aim/sessions/ 下
 
 aimv2 --model gpt-5.6-sol --reasoning-effort high --enable-shell --log-path YOUR_LOG_FILE.json
 ```
@@ -231,8 +231,8 @@ cp -R /path/to/AIMv2/.aim/skills/problem-clarifier .aim/skills/
 
 ```bash
 # 1. 请按需调整 log 存放目录和文件；
-# 2. 不建议放在工作目录下，以免 aimv2 自动读取产生混乱
-# 3. 如不指定 --log-path，log 将存放在系统默认目录
+# 2. 启用 shell 时，把日志放在 workspace 之外可降低 agent 后续检查文件时读取它的可能性
+# 3. 如不指定 --log-path，日志将保存在 ~/.aim/sessions/ 下
 
 cd my-math-project
 aimv2 \
@@ -313,7 +313,7 @@ aimv2 view --last --all > theorem-graph.md
 aimv2 view --log-path YOUR_LOG_FILE.json --id 12
 ```
 
-查看某个条目及其全部依赖路径：
+查看某个条目及其全部传递依赖条目：
 
 ```bash
 aimv2 view --log-path YOUR_LOG_FILE.json --path-to 12 > theorem-path-12.md
@@ -364,7 +364,7 @@ aimv2 \
 aimv2 --model gpt-5.6-sol --reasoning-effort high --log-path YOUR_LOG_FILE.json
 ```
 
-这个 JSON 是完整的机器可读记录，包含对话消息、工具调用、会话设置和 theorem graph。`view` 命令导出的是 theorem graph 的易读 Markdown，并不是逐字对话稿。
+这个 JSON 是主会话的机器可读记录，包含主会话的对话消息、工具调用、会话设置和 theorem graph。后台 reviewer 与压缩子会话的完整对话不会全部写入；它们产生的 theorem graph 更新、摘要和用量统计会反映在主记录中。`view` 命令导出的是 theorem graph 的易读 Markdown，并不是逐字对话稿。
 
 `--log-path` 后面必须是**文件路径**，不能只是目录：
 
@@ -376,7 +376,7 @@ aimv2 --model gpt-5.6-sol --reasoning-effort high --log-path aim-logs/session.js
 aimv2 --model gpt-5.6-sol --reasoning-effort high --log-path aim-logs
 ```
 
-如果不指定，日志仍会保存在操作系统临时目录下的 `aim-logs` 目录中；每次启动时终端的 `history:` 行会显示完整路径。临时目录可能被系统清理，重要任务应使用显式日志路径。
+如果不指定，AIMv2 会把每个 session 作为独立 JSON 文件持久保存在 `~/.aim/sessions/` 下；每次启动时终端的 `history:` 行会显示完整路径。如果希望某个任务的日志位置固定且便于移动，可以显式指定日志路径。
 
 ### 恢复会话时哪些设置会被继承？
 
@@ -387,6 +387,8 @@ aimv2 --model gpt-5.6-sol --reasoning-effort high --log-path aim-logs
 - token limit；
 - reviewer 类型与次数；
 - shell 是否启用以及是否自动批准。
+
+通过 `/reviewer`、`/reviews`、`/iterations` 或 `/auto` 做出的修改会立即作用于当前进程，但要等到下一次会话历史成功保存时才会写入日志，例如完成一次普通 turn 或 `/continue` 之后。如果修改设置后立即退出，恢复会话时可能不会保留该修改。
 
 因此，`--enable-shell` 应在**新建会话时**决定。如果原会话创建时没有启用 shell，恢复后不能用命令行参数临时打开；建议新建一个启用了 shell 的 session。类似下面的命令还会因为 `--enable-shell` 放在子命令之后而直接报参数错误：
 
@@ -460,7 +462,7 @@ aimv2 \
 
 ### `missing AIM_API_KEY or OPENAI_API_KEY`
 
-当前 workspace 中没有读到 API key。确认：
+进程环境和当前 workspace 的 `.env` 中都没有读到 API key。这个错误只影响新建或恢复交互会话；`view`、`--help` 和 `--version` 不需要 API key。确认：
 
 1. `.env` 位于执行 `aimv2` 时的当前目录；
 2. 变量名是 `AIM_API_KEY` 或 `OPENAI_API_KEY`；
@@ -539,7 +541,7 @@ aimv2 view (--last | --log-path FILE) (--all | --id N | --path-to N)
 | --- | --- | --- |
 | `--model MODEL` | `gpt-5.6-sol` | API 服务商支持的模型名 |
 | `--reasoning-effort LEVEL` | `medium` | `minimal` / `low` / `medium` / `high` |
-| `--log-path FILE` | 系统临时目录 | session JSON 文件路径 |
+| `--log-path FILE` | `~/.aim/sessions/<session-id>.json` | session JSON 文件路径 |
 | `--enable-shell` | 关闭 | 允许 AIM 在 workspace 内读写文件和运行命令 |
 | `--auto` | 关闭 | shell 启用时自动批准命令 |
 | `--reviewer KIND` | `progressive` | `simple` 或 `progressive` |
