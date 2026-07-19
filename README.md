@@ -152,7 +152,7 @@ export AIM_BASE_URL='https://replace-with-your-provider-url/v1'
 
 ### Choosing a Model
 
-AIMv2 currently defaults to `gpt-5.4`, but a third-party endpoint may not offer that model. The most reliable approach is to explicitly specify a model supported by your provider whenever you start a new session:
+AIMv2 currently defaults to `gpt-5.6-sol`, but a third-party endpoint may not offer that model. The most reliable approach is to explicitly specify a model supported by your provider whenever you start a new session:
 
 ```bash
 aimv2 --model gpt-5.6-sol
@@ -485,7 +485,7 @@ No API key was found in the current workspace. Check that:
 
 ### `model_not_found` or “No channel available for model”
 
-This usually indicates that the current endpoint does not offer the selected model; it is not a theorem-graph or logging problem. If the error mentions the default model, `gpt-5.4`, switch to a model your provider supports:
+This usually indicates that the current endpoint does not offer the selected model; it is not a theorem-graph or logging problem. If the error mentions the default model, `gpt-5.6-sol`, switch to a model your provider supports:
 
 ```bash
 aimv2 --model exact-model-name-from-your-provider
@@ -554,7 +554,7 @@ Common startup options:
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `--model MODEL` | `gpt-5.4` | Model name supported by the API provider |
+| `--model MODEL` | `gpt-5.6-sol` | Model name supported by the API provider |
 | `--reasoning-effort LEVEL` | `medium` | `minimal` / `low` / `medium` / `high` |
 | `--log-path FILE` | System temporary directory | Path to the session JSON file |
 | `--enable-shell` | Disabled | Allow AIM to read and write files and run commands in the workspace |

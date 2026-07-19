@@ -148,7 +148,7 @@ export AIM_BASE_URL='https://请替换为服务商地址/v1'
 
 ### 选择模型
 
-AIMv2 当前默认模型是 `gpt-5.4`，但第三方 endpoint 不一定提供它。最稳妥的做法是每次新建会话时明确指定服务商支持的模型：
+AIMv2 当前默认模型是 `gpt-5.6-sol`，但第三方 endpoint 不一定提供它。最稳妥的做法是每次新建会话时明确指定服务商支持的模型：
 
 ```bash
 aimv2 --model gpt-5.6-sol
@@ -468,7 +468,7 @@ aimv2 \
 
 ### `model_not_found` 或 “模型无可用渠道”
 
-这通常不是 theorem graph 或日志问题，而是当前 endpoint 不提供所选模型。若错误中出现默认模型 `gpt-5.4`，请改为服务商支持的模型：
+这通常不是 theorem graph 或日志问题，而是当前 endpoint 不提供所选模型。若错误中出现默认模型 `gpt-5.6-sol`，请改为服务商支持的模型：
 
 ```bash
 aimv2 --model 服务商提供的准确模型名
@@ -537,7 +537,7 @@ aimv2 view (--last | --log-path FILE) (--all | --id N | --path-to N)
 
 | 选项 | 默认值 | 说明 |
 | --- | --- | --- |
-| `--model MODEL` | `gpt-5.4` | API 服务商支持的模型名 |
+| `--model MODEL` | `gpt-5.6-sol` | API 服务商支持的模型名 |
 | `--reasoning-effort LEVEL` | `medium` | `minimal` / `low` / `medium` / `high` |
 | `--log-path FILE` | 系统临时目录 | session JSON 文件路径 |
 | `--enable-shell` | 关闭 | 允许 AIM 在 workspace 内读写文件和运行命令 |
