@@ -1573,7 +1573,8 @@ fn load_or_create_session(
                     ensure_log_parent(path)?;
                     path.to_path_buf()
                 }
-                None => default_sessions_root()?.join(format!("{}.json", history.session_id)),
+                None => default_sessions_root(workspace_root)?
+                    .join(format!("{}.json", history.session_id)),
             };
             Ok((path, history))
         }
@@ -1637,7 +1638,7 @@ fn load_or_create_session(
 }
 
 fn list_sessions(workspace_root: &Path) -> Result<Vec<SessionSummary>> {
-    let root = default_sessions_root()?;
+    let root = default_sessions_root(workspace_root)?;
     if !root.exists() {
         return Ok(Vec::new());
     }
@@ -1798,8 +1799,8 @@ fn ensure_log_parent(path: &Path) -> Result<()> {
     fs::create_dir_all(parent).with_context(|| format!("failed to create {}", parent.display()))
 }
 
-fn default_sessions_root() -> Result<PathBuf> {
-    let root = env::temp_dir().join("aim-logs");
+fn default_sessions_root(workspace_root: &Path) -> Result<PathBuf> {
+    let root = workspace_root.join("aim-logs");
     fs::create_dir_all(&root).with_context(|| format!("failed to create {}", root.display()))?;
     Ok(root)
 }
@@ -1943,8 +1944,8 @@ fn print_repl_help(
 mod tests {
     use super::{
         Config, PROGRESSIVE_REVIEW_MIN_CHUNK_LINES, ResumeMode, ReviewerConfig, ReviewerKind,
-        SessionConfigSnapshot, build_view_save_hint, load_session_file, resolve_session_settings,
-        split_proof_into_chunks,
+        SessionConfigSnapshot, build_view_save_hint, load_or_create_session, load_session_file,
+        resolve_session_settings, split_proof_into_chunks,
     };
     use crate::history::HistoryFile;
     use crate::llm::LlmConfig;
@@ -2050,6 +2051,30 @@ mod tests {
         let hint = build_view_save_hint(&cli);
 
         assert!(hint.contains("aimv2 view --last --all > theorem-graph.md"));
+    }
+
+    #[test]
+    fn creates_default_session_log_under_workspace_aim_logs() {
+        let workspace_root = std::env::temp_dir().join(format!(
+            "aimv2-test-{}-{}",
+            std::process::id(),
+            super::now_millis()
+        ));
+        fs::create_dir_all(&workspace_root).unwrap();
+
+        let (log_path, _) = load_or_create_session(&workspace_root, None, ResumeMode::New).unwrap();
+
+        assert_eq!(
+            log_path.parent(),
+            Some(workspace_root.join("aim-logs").as_path())
+        );
+        assert_eq!(
+            log_path.extension().and_then(|ext| ext.to_str()),
+            Some("json")
+        );
+
+        fs::remove_dir(workspace_root.join("aim-logs")).unwrap();
+        fs::remove_dir(workspace_root).unwrap();
     }
 
     #[test]
