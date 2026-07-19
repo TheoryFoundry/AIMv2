@@ -1,5 +1,7 @@
 # AIMv2
 
+[English](README.md)
+
 `aimv2` 是一个在本地工作目录中运行的 AI 数学助手（命令行工具）。它支持：
 
 - 探索数学问题与证明思路；
@@ -85,11 +87,15 @@ OPENAI_API_KEY=请替换为你的密钥
 模型名必须是 API 服务商实际提供的名称。下面以 `gpt-5.6-sol` 为例：
 
 ```bash
+# 1. 请按需调整 log 存放目录和文件；
+# 2. 不建议放在工作目录下，以免 aimv2 自动读取产生混乱
+# 3. 如不指定 --log-path，log 将存放在系统默认目录
+
 aimv2 \
   --model gpt-5.6-sol \
   --reasoning-effort high \
   --enable-shell \
-  --log-path aim-logs/session.json
+  --log-path YOUR_LOG_FILE.json
 ```
 
 > **安全提示：** `--enable-shell` 允许 AIM 以当前用户权限执行命令和修改文件，并不提供完整的安全沙箱。首次使用建议保留默认的逐条确认模式，不要添加 `--auto`；如果任务不需要读取文件、运行代码或写入结果，请移除 `--enable-shell`。
@@ -165,9 +171,7 @@ my-math-project/
 ├── .env                    # API 配置，不要提交到 Git
 ├── .gitignore
 ├── problem.md              # 问题描述、定义和约定
-├── notes.tex               # 可选：已有证明或草稿
-└── aim-logs/
-    └── session.json        # AIMv2 完整会话日志
+└── notes.tex               # 可选：已有证明或草稿
 ```
 
 请先 `cd` 到正确的项目目录再启动 AIMv2。workspace 决定了：
@@ -182,8 +186,12 @@ my-math-project/
 ### 场景一：从一个明确的问题开始探索
 
 ```bash
+# 1. 请按需调整 log 存放目录和文件；
+# 2. 不建议放在工作目录下，以免 aimv2 自动读取产生混乱
+# 3. 如不指定 --log-path，log 将存放在系统默认目录
+
 cd my-math-project
-aimv2 --model gpt-5.6-sol --reasoning-effort high --log-path aim-logs/session.json
+aimv2 --model gpt-5.6-sol --reasoning-effort high --log-path YOUR_LOG_FILE.json
 ```
 
 示例提问：
@@ -197,7 +205,11 @@ aimv2 --model gpt-5.6-sol --reasoning-effort high --log-path aim-logs/session.js
 ### 场景二：问题还比较模糊，先帮助定题
 
 ```bash
-aimv2 --model gpt-5.6-sol --reasoning-effort high --enable-shell --log-path aim-logs/problem-design.json
+# 1. 请按需调整 log 存放目录和文件；
+# 2. 不建议放在工作目录下，以免 aimv2 自动读取产生混乱
+# 3. 如不指定 --log-path，log 将存放在系统默认目录
+
+aimv2 --model gpt-5.6-sol --reasoning-effort high --enable-shell --log-path YOUR_LOG_FILE.json
 ```
 
 示例提问：
@@ -218,12 +230,16 @@ cp -R /path/to/AIMv2/.aim/skills/problem-clarifier .aim/skills/
 ### 场景三：结合已有 LaTeX、Markdown 或代码材料
 
 ```bash
+# 1. 请按需调整 log 存放目录和文件；
+# 2. 不建议放在工作目录下，以免 aimv2 自动读取产生混乱
+# 3. 如不指定 --log-path，log 将存放在系统默认目录
+
 cd my-math-project
 aimv2 \
   --model gpt-5.6-sol \
   --reasoning-effort high \
   --enable-shell \
-  --log-path aim-logs/session.json
+  --log-path YOUR_LOG_FILE.json
 ```
 
 示例提问：
@@ -251,7 +267,7 @@ shell 仅允许把工具的工作目录设在当前 workspace 内，但这**不�
 若启动时指定了日志文件：
 
 ```bash
-aimv2 resume --log-path aim-logs/session.json
+aimv2 resume --log-path YOUR_LOG_FILE.json
 ```
 
 若未指定日志文件，可在原 workspace 中恢复最近一次会话：
@@ -282,7 +298,7 @@ aimv2 resume
 不需要手工阅读或修改 JSON，可以直接使用 `view`：
 
 ```bash
-aimv2 view --log-path aim-logs/session.json --all > theorem-graph.md
+aimv2 view --log-path YOUR_LOG_FILE.json --all > theorem-graph.md
 ```
 
 查看最近会话并导出：
@@ -294,13 +310,13 @@ aimv2 view --last --all > theorem-graph.md
 查看单个条目：
 
 ```bash
-aimv2 view --log-path aim-logs/session.json --id 12
+aimv2 view --log-path YOUR_LOG_FILE.json --id 12
 ```
 
 查看某个条目及其全部依赖路径：
 
 ```bash
-aimv2 view --log-path aim-logs/session.json --path-to 12 > theorem-path-12.md
+aimv2 view --log-path YOUR_LOG_FILE.json --path-to 12 > theorem-path-12.md
 ```
 
 `view` 输出的是便于阅读的 Markdown，包含 statement、proof、依赖、审查次数和审查意见。它只读取日志，不需要 API key。
@@ -320,7 +336,7 @@ aimv2 \
   --reasoning-effort high \
   --reviewer progressive \
   --progressive-iterations 3 \
-  --log-path aim-logs/session.json
+  --log-path YOUR_LOG_FILE.json
 ```
 
 使用 4 次并行 simple review：
@@ -331,13 +347,13 @@ aimv2 \
   --reasoning-effort high \
   --reviewer simple \
   --simple-reviews 4 \
-  --log-path aim-logs/session.json
+  --log-path YOUR_LOG_FILE.json
 ```
 
 进入会话后可以直接要求：
 
 ```text
-请对最终命题及其依赖路径逐项审查。重点寻找未声明的假设、循环依赖、量词变化和只被数值实验支持的步骤；
+请对最终命题及其依赖路径逐项审查。重点寻找未声明的假设、循环依赖、量词变化和只被数值实验支持的步骤。
 ```
 
 ## 会话日志与恢复设置
@@ -345,7 +361,7 @@ aimv2 \
 每个 session 对应一个独立的 JSON 文件。建议新建会话时总是明确保存位置：
 
 ```bash
-aimv2 --model gpt-5.6-sol --reasoning-effort high --log-path aim-logs/session.json
+aimv2 --model gpt-5.6-sol --reasoning-effort high --log-path YOUR_LOG_FILE.json
 ```
 
 这个 JSON 是完整的机器可读记录，包含对话消息、工具调用、会话设置和 theorem graph。`view` 命令导出的是 theorem graph 的易读 Markdown，并不是逐字对话稿。
@@ -469,7 +485,7 @@ aimv2 --model 服务商提供的准确模型名
 传入的是目录，不是单个 session 文件。改为：
 
 ```bash
-aimv2 resume --log-path /path/to/session.json
+aimv2 resume --log-path YOUR_LOG_FILE.json
 ```
 
 ### `unexpected argument '--enable-shell' found`
@@ -477,7 +493,7 @@ aimv2 resume --log-path /path/to/session.json
 `resume` 不接受在子命令后追加这个选项，而且恢复的新式日志会继承原会话的 shell 设置。若原会话没有 shell，推荐新建：
 
 ```bash
-aimv2 --enable-shell --log-path aim-logs/new-session.json
+aimv2 --enable-shell --log-path YOUR_LOG_FILE.json
 ```
 
 ### `/continue` 没有加载以前的会话
@@ -489,7 +505,7 @@ aimv2 --enable-shell --log-path aim-logs/new-session.json
 自动发现只匹配创建会话时的 workspace 路径。请回到原目录运行，或直接指定日志文件：
 
 ```bash
-aimv2 resume --log-path /absolute/path/to/session.json
+aimv2 resume --log-path YOUR_LOG_FILE.json
 ```
 
 ### 如何查看 JSON 中有哪些命题？
@@ -497,7 +513,7 @@ aimv2 resume --log-path /absolute/path/to/session.json
 无需直接阅读 JSON：
 
 ```bash
-aimv2 view --log-path /path/to/session.json --all > theorem-graph.md
+aimv2 view --log-path YOUR_LOG_FILE.json --all > theorem-graph.md
 ```
 
 ### AIM 提示较大的写入命令被拒绝
