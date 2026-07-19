@@ -77,6 +77,8 @@ pub(crate) fn system_prompt(
 pub(crate) fn simple_review_prompt(id: usize) -> String {
     format!(
         concat!(
+            "Act as an independent proof reviewer and perform the mathematical verification yourself. Do not delegate the review to more subagents.\n",
+            "You must not call theorem_graph_review; that tool creates reviewer subagents and is disabled in reviewer sessions.\n",
             "Review theorem entry {} and try to find an error in its proof.\n",
             "{}",
             "If you find an error, call theorem_graph_comment exactly once with id={} and a concise description of the flaw, then stop.\n",
@@ -91,6 +93,8 @@ pub(crate) fn simple_review_prompt(id: usize) -> String {
 pub(crate) fn progressive_review_prompt(id: usize, statement: &str, proof_chunk: &str) -> String {
     format!(
         concat!(
+            "Act as an independent proof reviewer and perform the mathematical verification yourself. Do not delegate the review to more subagents.\n",
+            "You must not call theorem_graph_review; that tool creates reviewer subagents and is disabled in reviewer sessions.\n",
             "Please look into the details of these contents in the proof and try to find the potential errors in that proof of theorem entry {}.\n",
             "The theorem statement is:\n{}\n\n",
             "Focus on the supplied proof part, but judge whether it is valid in the context of the whole theorem.\n",
@@ -116,4 +120,22 @@ fn review_focus_instructions() -> &'static str {
         "If the proof relies on previously deduced lemmas or theorems in the theorem graph, use theorem_graph_list_deps to inspect their statements before trusting them.\n",
         "Use theorem_graph_examine, theorem_graph_list_deps, or other tools whenever needed.\n"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{progressive_review_prompt, simple_review_prompt};
+
+    #[test]
+    fn reviewer_prompts_forbid_nested_review_tool_calls() {
+        let prompts = [
+            simple_review_prompt(3),
+            progressive_review_prompt(3, "statement", "proof"),
+        ];
+
+        for prompt in prompts {
+            assert!(prompt.contains("perform the mathematical verification yourself"));
+            assert!(prompt.contains("must not call theorem_graph_review"));
+        }
+    }
 }

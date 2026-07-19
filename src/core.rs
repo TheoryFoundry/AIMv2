@@ -384,10 +384,16 @@ enum ReviewRunOutcome {
     Commented,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum SessionMode {
     Normal,
     Review,
+}
+
+impl SessionMode {
+    fn allows_theorem_graph_review(self) -> bool {
+        self == Self::Normal
+    }
 }
 
 struct SessionOutcome {
@@ -874,7 +880,7 @@ impl Session {
                 });
             }
 
-            let review_outcome = self.handle_tool_calls(reply.tool_calls).await?;
+            let review_outcome = self.handle_tool_calls(reply.tool_calls, mode).await?;
             if matches!(mode, SessionMode::Review)
                 && matches!(review_outcome, ReviewRunOutcome::Commented)
             {
@@ -929,7 +935,11 @@ impl Session {
         Ok(true)
     }
 
-    async fn handle_tool_calls(&mut self, tool_calls: Vec<ToolCall>) -> Result<ReviewRunOutcome> {
+    async fn handle_tool_calls(
+        &mut self,
+        tool_calls: Vec<ToolCall>,
+        mode: SessionMode,
+    ) -> Result<ReviewRunOutcome> {
         let mut review_outcome = ReviewRunOutcome::NoError;
         for tool_call in tool_calls {
             let (success, content, current_review_outcome) = match tool_call.name.as_str() {
@@ -994,13 +1004,22 @@ impl Session {
                     }
                 }
                 "theorem_graph_review" => {
-                    match self.handle_theorem_graph_review(&tool_call).await {
-                        Ok(content) => (true, content, ReviewRunOutcome::NoError),
-                        Err(err) => (
+                    if !mode.allows_theorem_graph_review() {
+                        (
                             false,
-                            format!("tool error: {err:#}"),
+                            "tool error: theorem_graph_review is disabled in reviewer sessions; review the theorem and its dependencies directly"
+                                .to_string(),
                             ReviewRunOutcome::NoError,
-                        ),
+                        )
+                    } else {
+                        match self.handle_theorem_graph_review(&tool_call).await {
+                            Ok(content) => (true, content, ReviewRunOutcome::NoError),
+                            Err(err) => (
+                                false,
+                                format!("tool error: {err:#}"),
+                                ReviewRunOutcome::NoError,
+                            ),
+                        }
                     }
                 }
                 "theorem_graph_comment" => {
@@ -1950,8 +1969,8 @@ fn print_repl_help(
 mod tests {
     use super::{
         Config, PROGRESSIVE_REVIEW_MIN_CHUNK_LINES, ResumeMode, ReviewerConfig, ReviewerKind,
-        SessionConfigSnapshot, build_view_save_hint, load_session_file, resolve_session_settings,
-        sessions_root_for_home, split_proof_into_chunks,
+        SessionConfigSnapshot, SessionMode, build_view_save_hint, load_session_file,
+        resolve_session_settings, sessions_root_for_home, split_proof_into_chunks,
     };
     use crate::history::HistoryFile;
     use crate::llm::LlmConfig;
@@ -2067,6 +2086,12 @@ mod tests {
             sessions_root_for_home(&home),
             home.join(".aim").join("sessions")
         );
+    }
+
+    #[test]
+    fn reviewer_sessions_cannot_start_nested_reviews() {
+        assert!(SessionMode::Normal.allows_theorem_graph_review());
+        assert!(!SessionMode::Review.allows_theorem_graph_review());
     }
 
     #[test]

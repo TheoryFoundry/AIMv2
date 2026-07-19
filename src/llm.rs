@@ -695,7 +695,8 @@ fn theorem_graph_review_tool_definition() -> ChatCompletionTools {
         function: FunctionObject {
             name: "theorem_graph_review".to_string(),
             description: Some(
-                "Run the theorem-graph review routine on a theorem and its dependencies, updating review counts and flaw markers.".to_string(),
+                "Generate multiple subagents to review the current theorem and its dependencies in parallel."
+                    .to_string(),
             ),
             parameters: Some(json!({
                 "type": "object",
