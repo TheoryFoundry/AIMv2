@@ -12,6 +12,11 @@ use async_openai::{
 };
 use futures::StreamExt;
 use serde_json::{Map, Value, json};
+use std::env;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Instant;
+
+static MODEL_REQUEST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Debug)]
 pub(crate) struct LlmConfig {
@@ -41,6 +46,7 @@ pub(crate) struct ToolCall {
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum ToolMode {
     Agent { enable_shell: bool },
+    Reviewer,
 }
 
 #[derive(Debug, Default)]
@@ -68,6 +74,17 @@ pub(crate) async fn call_model<F>(
 where
     F: FnMut(&str),
 {
+    let request_id = MODEL_REQUEST_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let request_started = Instant::now();
+    debug_model_event(
+        request_id,
+        &format!(
+            "request started; model={}; effort={:?}; tools={}",
+            config.model,
+            config.reasoning_effort,
+            tool_mode_label(tool_mode)
+        ),
+    );
     let stream_request = build_request(config, messages.clone(), tool_mode, true)?
         .build()
         .context("failed to build chat completion request")?;
@@ -77,6 +94,13 @@ where
         .create_stream(stream_request)
         .await
         .context("chat completion request failed")?;
+    debug_model_event(
+        request_id,
+        &format!(
+            "stream opened after {:.1}s",
+            request_started.elapsed().as_secs_f64()
+        ),
+    );
 
     let mut spinner = if show_spinner {
         Some(Spinner::start())
@@ -88,9 +112,20 @@ where
     let reasoning: Option<String> = None;
     let mut usage: Option<CompletionUsage> = None;
     let mut tool_calls: Vec<PartialToolCall> = Vec::new();
+    let mut chunk_count = 0_u64;
 
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.context("failed to receive streaming response chunk")?;
+        chunk_count = chunk_count.saturating_add(1);
+        if chunk_count == 1 {
+            debug_model_event(
+                request_id,
+                &format!(
+                    "first stream chunk received after {:.1}s",
+                    request_started.elapsed().as_secs_f64()
+                ),
+            );
+        }
         if let Some(chunk_usage) = chunk.usage {
             usage = Some(chunk_usage);
         }
@@ -111,6 +146,13 @@ where
             }
         }
     }
+    debug_model_event(
+        request_id,
+        &format!(
+            "stream completed after {:.1}s; chunks={chunk_count}",
+            request_started.elapsed().as_secs_f64()
+        ),
+    );
 
     let streamed_content = if content.trim().is_empty() {
         refusal.trim().to_string()
@@ -129,7 +171,12 @@ where
     let tool_calls = match finalize_tool_calls(tool_calls) {
         Ok(tool_calls) => tool_calls,
         Err(_) if tool_mode.is_some() => {
+            debug_model_event(
+                request_id,
+                "streamed tool calls were incomplete; starting fallback",
+            );
             let fallback = fallback_non_stream(client, config, messages, tool_mode).await?;
+            debug_model_event(request_id, "fallback request completed");
             if streamed_content.is_empty() && !fallback.content.is_empty() {
                 stop_spinner(&mut spinner);
                 on_text(&fallback.content);
@@ -152,7 +199,12 @@ where
     };
 
     if streamed_content.is_empty() && tool_calls.is_empty() {
+        debug_model_event(
+            request_id,
+            "stream returned no content or tool calls; starting fallback",
+        );
         let fallback = fallback_non_stream(client, config, messages, tool_mode).await?;
+        debug_model_event(request_id, "fallback request completed");
         if !fallback.content.is_empty() {
             stop_spinner(&mut spinner);
             on_text(&fallback.content);
@@ -261,6 +313,40 @@ fn tool_definitions(mode: ToolMode) -> Vec<ChatCompletionTools> {
             }
             tools
         }
+        ToolMode::Reviewer => vec![
+            theorem_graph_list_tool_definition(),
+            theorem_graph_list_deps_tool_definition(),
+            theorem_graph_examine_tool_definition(),
+            theorem_graph_comment_tool_definition(),
+        ],
+    }
+}
+
+fn tool_mode_label(mode: Option<ToolMode>) -> &'static str {
+    match mode {
+        Some(ToolMode::Agent { enable_shell: true }) => "agent+shell",
+        Some(ToolMode::Agent {
+            enable_shell: false,
+        }) => "agent",
+        Some(ToolMode::Reviewer) => "reviewer",
+        None => "none",
+    }
+}
+
+fn debug_model_enabled() -> bool {
+    env::var("AIM_DEBUG_BACKGROUND")
+        .map(|value| {
+            !matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "" | "0" | "false" | "off"
+            )
+        })
+        .unwrap_or(false)
+}
+
+fn debug_model_event(request_id: u64, message: &str) {
+    if debug_model_enabled() {
+        eprintln!("debug[model request={request_id}] {message}");
     }
 }
 
@@ -601,7 +687,7 @@ fn stop_spinner(spinner: &mut Option<Spinner>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{stop_spinner, sum_token_usage};
+    use super::{ToolMode, stop_spinner, sum_token_usage, tool_definitions};
     use crate::ui::Spinner;
 
     #[test]
@@ -619,6 +705,21 @@ mod tests {
         assert!(spinner.is_none());
         stop_spinner(&mut spinner);
         assert!(spinner.is_none());
+    }
+
+    #[test]
+    fn reviewer_tools_cannot_start_nested_reviews_or_modify_proofs() {
+        let tools = serde_json::to_value(tool_definitions(ToolMode::Reviewer)).unwrap();
+        let encoded = serde_json::to_string(&tools).unwrap();
+
+        assert!(encoded.contains("theorem_graph_list"));
+        assert!(encoded.contains("theorem_graph_list_deps"));
+        assert!(encoded.contains("theorem_graph_examine"));
+        assert!(encoded.contains("theorem_graph_comment"));
+        assert!(!encoded.contains("theorem_graph_review"));
+        assert!(!encoded.contains("theorem_graph_push"));
+        assert!(!encoded.contains("theorem_graph_revise"));
+        assert!(!encoded.contains("shell_tool"));
     }
 }
 

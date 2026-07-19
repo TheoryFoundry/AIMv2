@@ -28,7 +28,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use theorem_graph::TheoremEntryType;
 use tokio::sync::Mutex as AsyncMutex;
 use ui::{
@@ -204,6 +204,7 @@ struct Session {
     auto_approve: Arc<Mutex<bool>>,
     allow_auto_compaction: bool,
     emit_output: bool,
+    background_depth: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -449,6 +450,7 @@ impl App {
             auto_approve,
             allow_auto_compaction: true,
             emit_output: true,
+            background_depth: 0,
         };
 
         Ok(Self {
@@ -769,6 +771,7 @@ impl Session {
             auto_approve: Arc::clone(&self.auto_approve),
             allow_auto_compaction,
             emit_output,
+            background_depth: self.background_depth.saturating_add(1),
         }
     }
 
@@ -792,7 +795,7 @@ impl Session {
     }
 
     async fn run_agent_loop(&mut self, mode: SessionMode) -> Result<SessionOutcome> {
-        for _ in 0..LOOP_LIMIT {
+        for step in 0..LOOP_LIMIT {
             if self.allow_auto_compaction {
                 self.compact_history_if_needed(CompactionMode::MidTurn)
                     .await?;
@@ -806,13 +809,23 @@ impl Session {
             );
             let mut started_stream = false;
             let emit_output = self.emit_output;
+            let tool_mode = match mode {
+                SessionMode::Normal => ToolMode::Agent {
+                    enable_shell: self.config.enable_shell,
+                },
+                SessionMode::Review => ToolMode::Reviewer,
+            };
+            let request_started = Instant::now();
+            debug_background_event(
+                self.background_depth,
+                mode,
+                &format!("agent step {}: model request started", step + 1),
+            );
             let reply = match call_model(
                 &self.client,
                 &self.config.llm,
                 messages,
-                Some(ToolMode::Agent {
-                    enable_shell: self.config.enable_shell,
-                }),
+                Some(tool_mode),
                 self.emit_output,
                 |chunk| {
                     if !emit_output {
@@ -837,6 +850,23 @@ impl Session {
                     return Err(err);
                 }
             };
+            let tool_names = reply
+                .tool_calls
+                .iter()
+                .map(|call| call.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            debug_background_event(
+                self.background_depth,
+                mode,
+                &format!(
+                    "agent step {}: model response completed in {:.1}s; content_chars={}; tools=[{}]",
+                    step + 1,
+                    request_started.elapsed().as_secs_f64(),
+                    reply.content.chars().count(),
+                    tool_names
+                ),
+            );
             if started_stream {
                 println!();
             }
@@ -874,7 +904,7 @@ impl Session {
                 });
             }
 
-            let review_outcome = self.handle_tool_calls(reply.tool_calls).await?;
+            let review_outcome = self.handle_tool_calls(mode, reply.tool_calls).await?;
             if matches!(mode, SessionMode::Review)
                 && matches!(review_outcome, ReviewRunOutcome::Commented)
             {
@@ -929,9 +959,23 @@ impl Session {
         Ok(true)
     }
 
-    async fn handle_tool_calls(&mut self, tool_calls: Vec<ToolCall>) -> Result<ReviewRunOutcome> {
+    async fn handle_tool_calls(
+        &mut self,
+        mode: SessionMode,
+        tool_calls: Vec<ToolCall>,
+    ) -> Result<ReviewRunOutcome> {
         let mut review_outcome = ReviewRunOutcome::NoError;
         for tool_call in tool_calls {
+            if matches!(mode, SessionMode::Review) && !review_session_allows(&tool_call.name) {
+                let content = format!(
+                    "tool {} is unavailable in background review sessions",
+                    tool_call.name
+                );
+                self.history
+                    .push_tool(tool_call.id, tool_call.name, content);
+                self.persist_history().await?;
+                continue;
+            }
             let (success, content, current_review_outcome) = match tool_call.name.as_str() {
                 "shell_tool" => {
                     if !self.config.enable_shell {
@@ -1840,6 +1884,40 @@ fn preview_text(text: &str, max_chars: usize) -> String {
     }
 }
 
+fn debug_background_enabled() -> bool {
+    env::var("AIM_DEBUG_BACKGROUND")
+        .map(|value| {
+            !matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "" | "0" | "false" | "off"
+            )
+        })
+        .unwrap_or(false)
+}
+
+fn review_session_allows(tool_name: &str) -> bool {
+    matches!(
+        tool_name,
+        "theorem_graph_list"
+            | "theorem_graph_list_deps"
+            | "theorem_graph_examine"
+            | "theorem_graph_comment"
+    )
+}
+
+fn debug_background_event(depth: usize, mode: SessionMode, message: &str) {
+    if !debug_background_enabled() {
+        return;
+    }
+    eprintln!(
+        "debug[background depth={depth} mode={}] {message}",
+        match mode {
+            SessionMode::Normal => "normal",
+            SessionMode::Review => "review",
+        }
+    );
+}
+
 fn now_millis() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -1944,7 +2022,7 @@ mod tests {
     use super::{
         Config, PROGRESSIVE_REVIEW_MIN_CHUNK_LINES, ResumeMode, ReviewerConfig, ReviewerKind,
         SessionConfigSnapshot, build_view_save_hint, load_session_file, resolve_session_settings,
-        split_proof_into_chunks,
+        review_session_allows, split_proof_into_chunks,
     };
     use crate::history::HistoryFile;
     use crate::llm::LlmConfig;
@@ -1964,6 +2042,18 @@ mod tests {
         assert_eq!(chunks.len(), 2);
         assert_eq!(chunks[0], "line 1\nline 2\nline 3\nline 4\nline 5");
         assert_eq!(chunks[1], "line 6\nline 7\nline 8\nline 9\nline 10");
+    }
+
+    #[test]
+    fn review_sessions_reject_recursive_and_mutating_tools() {
+        assert!(review_session_allows("theorem_graph_list"));
+        assert!(review_session_allows("theorem_graph_list_deps"));
+        assert!(review_session_allows("theorem_graph_examine"));
+        assert!(review_session_allows("theorem_graph_comment"));
+        assert!(!review_session_allows("theorem_graph_review"));
+        assert!(!review_session_allows("theorem_graph_push"));
+        assert!(!review_session_allows("theorem_graph_revise"));
+        assert!(!review_session_allows("shell_tool"));
     }
 
     #[test]

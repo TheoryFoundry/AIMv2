@@ -109,6 +109,7 @@ pub(crate) fn progressive_review_prompt(id: usize, statement: &str, proof_chunk:
 
 fn review_focus_instructions() -> &'static str {
     concat!(
+        "This is already a background review session; never call theorem_graph_review from it.\n",
         "Focus especially on these checks:\n",
         "1. Verify that every formula deduction, algebraic manipulation, and calculation is correct.\n",
         "2. Check that the proof does not introduce extra conditions, restrictions, or assumptions without explanation, whether explicitly or implicitly.\n",
