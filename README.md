@@ -88,9 +88,9 @@ The model name must exactly match one provided by your API provider. The followi
 
 ```bash
 # 1. Choose an appropriate directory and filename for the log.
-# 2. Avoid placing it in the workspace, where AIMv2 might read it automatically
-#    and introduce unnecessary confusion.
-# 3. If --log-path is omitted, the log is stored in the system's default location.
+# 2. When the shell is enabled, keeping the log outside the workspace reduces
+#    the chance that the agent reads it during later file inspection.
+# 3. If --log-path is omitted, the log is saved under ~/.aim/sessions/.
 
 aimv2 \
   --model gpt-5.6-sol \
@@ -138,7 +138,7 @@ AIMv2 reads configuration in the following order of precedence:
 
 | Purpose | Primary variable | Fallback variable | If unset |
 | --- | --- | --- | --- |
-| API key | `AIM_API_KEY` | `OPENAI_API_KEY` | AIMv2 cannot start |
+| API key | `AIM_API_KEY` | `OPENAI_API_KEY` | New and resumed interactive sessions cannot start; `view` still works |
 | API endpoint | `AIM_BASE_URL` | `OPENAI_BASE_URL` | `https://api.openai.com/v1` |
 
 We recommend placing these settings in a `.env` file at the workspace root. AIMv2 automatically reads **only the `.env` file in the current workspace**; a `.env` file in the source repository used for installation will not apply automatically to other workspaces.
@@ -191,9 +191,9 @@ Always `cd` into the correct project directory before launching AIMv2. The works
 
 ```bash
 # 1. Choose an appropriate directory and filename for the log.
-# 2. Avoid placing it in the workspace, where AIMv2 might read it automatically
-#    and introduce unnecessary confusion.
-# 3. If --log-path is omitted, the log is stored in the system's default location.
+# 2. When the shell is enabled, keeping the log outside the workspace reduces
+#    the chance that the agent reads it during later file inspection.
+# 3. If --log-path is omitted, the log is saved under ~/.aim/sessions/.
 
 cd my-math-project
 aimv2 --model gpt-5.6-sol --reasoning-effort high --log-path YOUR_LOG_FILE.json
@@ -212,9 +212,9 @@ If this task does not require reading or writing local files, you can leave the 
 
 ```bash
 # 1. Choose an appropriate directory and filename for the log.
-# 2. Avoid placing it in the workspace, where AIMv2 might read it automatically
-#    and introduce unnecessary confusion.
-# 3. If --log-path is omitted, the log is stored in the system's default location.
+# 2. When the shell is enabled, keeping the log outside the workspace reduces
+#    the chance that the agent reads it during later file inspection.
+# 3. If --log-path is omitted, the log is saved under ~/.aim/sessions/.
 
 aimv2 --model gpt-5.6-sol --reasoning-effort high --enable-shell --log-path YOUR_LOG_FILE.json
 ```
@@ -242,9 +242,9 @@ Replace `/path/to/AIMv2` with the actual path to this repository. Skills are dis
 
 ```bash
 # 1. Choose an appropriate directory and filename for the log.
-# 2. Avoid placing it in the workspace, where AIMv2 might read it automatically
-#    and introduce unnecessary confusion.
-# 3. If --log-path is omitted, the log is stored in the system's default location.
+# 2. When the shell is enabled, keeping the log outside the workspace reduces
+#    the chance that the agent reads it during later file inspection.
+# 3. If --log-path is omitted, the log is saved under ~/.aim/sessions/.
 
 cd my-math-project
 aimv2 \
@@ -328,7 +328,7 @@ To inspect a single entry:
 aimv2 view --log-path YOUR_LOG_FILE.json --id 12
 ```
 
-To inspect an entry together with every dependency path leading to it:
+To inspect an entry together with all of its transitive dependencies:
 
 ```bash
 aimv2 view --log-path YOUR_LOG_FILE.json --path-to 12 > theorem-path-12.md
@@ -381,7 +381,7 @@ Each session is stored in a separate JSON file. When starting a new session, we 
 aimv2 --model gpt-5.6-sol --reasoning-effort high --log-path YOUR_LOG_FILE.json
 ```
 
-This JSON file is the complete machine-readable record, including conversation messages, tool calls, session settings, and the theorem graph. The `view` command exports a readable Markdown version of the theorem graph; it is not a verbatim transcript of the conversation.
+This JSON file is the machine-readable record of the main session, including its conversation messages, tool calls, session settings, and theorem graph. Background reviewer and compaction sub-session conversations are not stored in full; their resulting theorem-graph updates, summaries, and usage totals are reflected in the main record. The `view` command exports a readable Markdown version of the theorem graph; it is not a verbatim transcript of the conversation.
 
 The value passed to `--log-path` must be a **file path**, not just a directory:
 
@@ -393,7 +393,7 @@ aimv2 --model gpt-5.6-sol --reasoning-effort high --log-path aim-logs/session.js
 aimv2 --model gpt-5.6-sol --reasoning-effort high --log-path aim-logs
 ```
 
-If `--log-path` is omitted, logs are still saved under an `aim-logs` directory in the operating system's temporary directory. The `history:` line printed at startup shows the full path. The system may clear temporary directories, so use an explicit log path for important tasks.
+If `--log-path` is omitted, AIMv2 saves each session persistently as a separate JSON file under `~/.aim/sessions/`. The `history:` line printed at startup shows the full path. Use an explicit log path when you want a predictable, portable location for a particular task.
 
 ### Which Settings Are Preserved When You Resume a Session?
 
@@ -404,6 +404,8 @@ When resuming a log created by a recent version of AIMv2, the application restor
 - the token limit;
 - the reviewer mode and review count;
 - whether the shell is enabled and whether commands are approved automatically.
+
+Changes made with `/reviewer`, `/reviews`, `/iterations`, or `/auto` take effect immediately in the current process, but they are written to the log the next time the session history is successfully saved—for example, after a normal turn or `/continue`. If you change one of these settings and exit immediately, that change may not be restored on resume.
 
 You should therefore decide whether to use `--enable-shell` **when creating a new session**. If the original session was created without shell access, you cannot temporarily enable it with a resume argument; create a new shell-enabled session instead. A command such as the following will also fail immediately because `--enable-shell` appears after the subcommand:
 
@@ -477,7 +479,7 @@ Skills are not loaded unless the shell is enabled, because AIM needs shell acces
 
 ### `missing AIM_API_KEY or OPENAI_API_KEY`
 
-No API key was found in the current workspace. Check that:
+No API key was found in either the process environment or the current workspace's `.env` file. This error applies to new and resumed interactive sessions; `view`, `--help`, and `--version` do not require an API key. Check that:
 
 1. `.env` is in the directory from which you run `aimv2`;
 2. the variable is named `AIM_API_KEY` or `OPENAI_API_KEY`;
@@ -556,7 +558,7 @@ Common startup options:
 | --- | --- | --- |
 | `--model MODEL` | `gpt-5.6-sol` | Model name supported by the API provider |
 | `--reasoning-effort LEVEL` | `medium` | `minimal` / `low` / `medium` / `high` |
-| `--log-path FILE` | System temporary directory | Path to the session JSON file |
+| `--log-path FILE` | `~/.aim/sessions/<session-id>.json` | Path to the session JSON file |
 | `--enable-shell` | Disabled | Allow AIM to read and write files and run commands in the workspace |
 | `--auto` | Disabled | Automatically approve commands when the shell is enabled |
 | `--reviewer KIND` | `progressive` | `simple` or `progressive` |
