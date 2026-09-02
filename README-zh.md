@@ -1,6 +1,6 @@
 # AIMv2
 
-[English](README.md)
+[English](README.md) | [项目博客](https://ai-mathematician.net/zh/)
 
 `aimv2` 是一个在本地工作目录中运行的 AI 数学助手（命令行工具）。它支持：
 
@@ -11,6 +11,10 @@
 - 在获得授权后读取本地材料、运行代码和写入结果文件。
 
 > **术语说明：** theorem graph 里的 “theorem” 主要指 AIM 在解题过程中提出或推导出的 **statement（命题、中间结论）**，不一定是从文献中检索到的已有定理。
+
+## 项目负责人（Project Leads）
+
+AIMv2 的项目负责人为 **[李鹏](https://lpeng.net)** 和 **[刘洋](https://nlp.csai.tsinghua.edu.cn/~ly/)**。
 
 ## 5 分钟快速开始
 

@@ -1,6 +1,6 @@
 # AIMv2
 
-[中文版](README-zh.md)
+[中文版](README-zh.md) | [Project Blog](https://ai-mathematician.net/en/)
 
 `aimv2` is a command-line AI mathematics assistant that runs in a local working directory. It can:
 
@@ -11,6 +11,10 @@
 - read local materials, run code, and write result files with your permission.
 
 > **Terminology:** In the theorem graph, a “theorem” is primarily a **statement**—a proposition or intermediate result that AIM formulates or derives while solving a problem. It is not necessarily an established theorem retrieved from the literature.
+
+## Project Leadership
+
+The Project Leads of AIMv2 are **[Peng Li](https://lpeng.net)** and **[Yang Liu](https://nlp.csai.tsinghua.edu.cn/~ly/)**.
 
 ## Quick Start: Up and Running in 5 Minutes
 
